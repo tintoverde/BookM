@@ -1,9 +1,9 @@
 const fs = require('fs');
 const { Parser } = require("htmlparser2");
-const render = require('dom-serializer').default;
+//const render = require('dom-serializer').default;
 const { DomHandler } = require("domhandler"); 
 const cheerio = require('cheerio');
-
+const {HEAD_SECTION,LAST_END_TAG,START_OF_BMFLDR,END_OF_BMFLDR, EOL, SINGLE_ITEM_FLDR} = require('./constants');
 
 class BookmarkSpec {
     constructor(bookMarkName, fullUrl, addDate, lastModified, icon) {
@@ -16,7 +16,12 @@ class BookmarkSpec {
 }
 
 function getUpdatedKey(key) {
-     return key;
+    const tempArr = key.split('.');
+    let a = tempArr[0] +' '+ tempArr[1];
+    if(!tempArr[1]) { 
+        return key;
+    } 
+    return a;
 }
 
 if (!process.argv[2]){
@@ -38,90 +43,106 @@ fs.readFile(process.argv[2], 'utf8', (err, inputData) => {
     const $a = $('A');
     let count = 0;
     for (b of $a){
-        
         let fullUrl = b.attribs.href;
         let addDate = b.attribs.add_date;
         let lastModified = b.attribs.last_modified;
         let icon = b.attribs.icon;
 
+        let urlPrefixArr = fullUrl.split('/');
+        //let urlPrefix 
+        //let secondPos = fullUrl.indexOf('/',pos+1);
+        // if ( pos === (fullUrl.length -1) ) {       
+        //      pos = fullUrl.lastIndexOf('/', pos -1);
+        // }
+        //let urlPrefix = fullUrl.substring(pos,secondPos );
 
-        let pos = fullUrl.lastIndexOf('/');
-        if ( pos === (fullUrl.length -1) ) {         
-           pos = fullUrl.lastIndexOf('/', pos -1);
+        let urlPrefix = urlPrefixArr[2];
+        if(!urlPrefix && urlPrefixArr[3]){
+            urlPrefix = urlPrefixArr[3];
         }
-        let prefix = fullUrl.substring(fullUrl.indexOf(':')+3,pos );
 
         let bookMarkText = [$(b).text()];
 
-        let bookMarkSpecArrFrmMap = myMap.get(prefix);
+        let bookMarkSpecArrFrmMap = myMap.get(urlPrefix);
         
         let bookMarkSpec = new BookmarkSpec(bookMarkText, fullUrl, addDate, lastModified, icon);
         if(!bookMarkSpecArrFrmMap) {
            bookMarkSpecArrFrmMap = [bookMarkSpec];
-           myMap.set(prefix,bookMarkSpecArrFrmMap);
+           myMap.set(urlPrefix,bookMarkSpecArrFrmMap);
            bookMarkPrefixCount++;
           
         } else {
-            //console.log(" Before "+bookMarkSpecArrFrmMap +"= " +myMap.get(prefix));
             bookMarkSpecArrFrmMap.push(bookMarkSpec);
-            //console.log(" After "+bookMarkSpecArrFrmMap +"= " +myMap.get(prefix));
         }
-
          count++;
      }
-    console.log (" bookamrk folder count "+bookMarkPrefixCount);
+    //console.log(" bookamrk folder count "+bookMarkPrefixCount);
+    //console.log(" bookamrk count ", count);
     
-    console.log(" bookamrk count ", count);
+    //combine the single folder items into one
+    let newMap = new Map();
+    const newKey = SINGLE_ITEM_FLDR;
     for (let [key, value] of myMap) {
-        //console.log(" key "+key);
-        for ( a of value) {
-           //console.log( "json ", JSON.stringify(a));
+        if (value.length == 1) {          
+           let valueInMap = newMap.get(SINGLE_ITEM_FLDR); 
+           if(!valueInMap){
+              valueInMap = [];
+
+           }
+           valueInMap.push(value[0]);
            
-           const { bookMarkName, fullUrl, addDate, lastModified, icon } = a;
-           //console.log( " assign ", bookMarkName, fullUrl, addDate, lastModified, icon);
+           newMap.set(newKey, valueInMap);
            
+        } else {
+            newMap.set(key,value);
         }
-        //console.log("_____________");
+
     }
-let headSection = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
-<!-- This is an automatically generated file.
-     It will be read and overwritten.
-     DO NOT EDIT! -->
-<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
-<TITLE>Bookmarks</TITLE>
-<H1>Bookmarks</H1>
-<DL><p>
-    <DT><H3 ADD_DATE="1632265777" LAST_MODIFIED="1692715889" PERSONAL_TOOLBAR_FOLDER="true">Bookmarks Bar</H3>
-    <DL><p>
-`;
     let NAME = "";
-    let lastEndTag =`    </DL><p>`;
-    let startOfBMFldr = `        <DL><p>`;
-    let endOfBMFldr   = `        </DL><p>`;
-    let bookMarks = headSection;
-    for (let [key, value] of myMap) {  
-        newKey = getUpdatedKey(key);
-        NAME = newKey;
+    let bookMarks = HEAD_SECTION;
+    let updatedKey = "";
+    const sortedMap = new Map([...newMap].sort(function(a, b) {
+        if ( a > b) {
+            return 1
+        } else if ( a < b) {
+                return -1
+        }
+        return 0;
+    }));
+    for (let [key, value] of sortedMap) {  
+        updatedKey = getUpdatedKey(key);
+        updatedKey = key;
+        NAME = updatedKey;
         let topLevelFolderTemplate = `        <DT><H3 ADD_DATE="1687803074" LAST_MODIFIED="1695673212">${NAME}</H3>`;
         
         bookMarks += topLevelFolderTemplate;
-        bookMarks += '\n';
-        bookMarks += startOfBMFldr;
-        bookMarks += '\n';
+        bookMarks += EOL;
+        bookMarks += START_OF_BMFLDR;
+        bookMarks += EOL;
+        const sortedValue = value.sort(function(a, b) {
+            if ( a.bookMarkName > b.bookMarkName) {
+                return 1
+            } else if ( a.bookMarkName < b.bookMarkName) {
+                    return -1
+            }
+            return 0;
+        });
 
-        for ( bookmarkSpec of value) {
-            //console.log(" why ", JSON.stringify(bookmarkSpec));
+        for ( bookmarkSpec of sortedValue) {            
             const { bookMarkName, fullUrl, addDate, lastModified, icon } = bookmarkSpec;
             let oneBookMark = `            <DT><A HREF="${fullUrl}" ADD_DATE="${addDate}" ICON="${icon}">${bookMarkName}</A>`;
             bookMarks += oneBookMark;
-            bookMarks += '\n';
+            bookMarks += EOL;
         }
-        bookMarks += endOfBMFldr;
-        bookMarks += '\n';
-        //console.log(topLevelFolderTemplate);
-          //NAME += i;
+        bookMarks += END_OF_BMFLDR;
+        bookMarks += EOL;   
     }
-    bookMarks += lastEndTag;
-    console.log(bookMarks);
+    bookMarks += LAST_END_TAG;
+    bookMarks += EOL; 
     
+    console.log(bookMarks);
+    console.log(" bookamrk folder count "+bookMarkPrefixCount);
+    console.log(" bookamrk count ", count);
+    console.log (" new bookamrk folder count "+ newMap.size);
+    console.log (" sinlge folder "+ newMap.get(SINGLE_ITEM_FLDR).length);
 });
